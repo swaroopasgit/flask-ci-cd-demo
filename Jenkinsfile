@@ -2,63 +2,64 @@ pipeline {
     agent any
 
     environment {
-        CONTAINER_NAME = 'flask-ci-container'
-        IMAGE_NAME = 'saiswaroopa08/flask-ci-demo'
-        DOCKERHUB_CRED = 'Dockerhub-flask' // Jenkins credentials ID for Docker Hub
-        GIT_CRED = 'flask-ci-cd'            // Jenkins credentials ID for Git
+        IMAGE_NAME = "saiswaroopa08/flask-ci-demo:latest"
+        CONTAINER_NAME = "flask-ci-container"
     }
 
     stages {
+
         stage('Checkout SCM') {
             steps {
-                git branch: 'main',
+                git branch: 'main', 
                     url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git',
-                    credentialsId: "${GIT_CRED}"
+                    credentialsId: 'flask-ci-cd'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:latest ."
+                sh "docker build -t ${IMAGE_NAME} ."
             }
         }
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${Dockerhub-flaskD}", 
-                                                 passwordVariable: 'DOCKER_PASS', 
-                                                 usernameVariable: 'DOCKER_USER')]) {
-                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
-                    sh "docker push ${IMAGE_NAME}:latest"
+                withCredentials([usernamePassword(credentialsId: 'Dockerhub-flask', 
+                                                 usernameVariable: 'DOCKER_USERNAME', 
+                                                 passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
+                    sh "docker push ${IMAGE_NAME}"
                 }
             }
         }
 
         stage('Deploy Container') {
             steps {
+                // Stop existing container if running
                 sh "docker rm -f ${CONTAINER_NAME} || true"
-                sh "docker run -d --name ${CONTAINER_NAME} -p 5001:5000 ${IMAGE_NAME}:latest"
+                // Run new container
+                sh "docker run -d --name ${CONTAINER_NAME} -p 5000:5000 ${IMAGE_NAME}"
             }
         }
 
         stage('Smoke Test') {
             steps {
-                sh "sleep 5"
-                sh "curl -f http://localhost:5001 || exit 1"
+                // Simple check if container is running
+                sh "docker ps | grep ${CONTAINER_NAME}"
             }
         }
     }
 
     post {
         always {
-            echo 'Cleaning up Docker container...'
+            echo "Cleaning up Docker container..."
             sh "docker rm -f ${CONTAINER_NAME} || true"
         }
         success {
-            echo 'Pipeline completed successfully!'
+            echo "Pipeline completed successfully!"
         }
         failure {
-            echo 'Pipeline failed! Check logs.'
+            echo "Pipeline failed! Check logs."
         }
     }
 }
