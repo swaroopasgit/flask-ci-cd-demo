@@ -2,14 +2,15 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'saiswaroopa08/flask-ci-demo:latest'
-        CONTAINER_NAME = 'flask-ci-container'
+        IMAGE_NAME = "saiswaroopa08/flask-ci-demo:latest"
+        CONTAINER_NAME = "flask-ci-container"
+        DOCKER_CRED = "Dockerhub-flask"
     }
 
     stages {
         stage('Checkout SCM') {
             steps {
-                git branch: 'main', credentialsId: 'flask-ci-cd', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git'
+                git branch: 'main', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git', credentialsId: 'flask-ci-cd'
             }
         }
 
@@ -21,8 +22,8 @@ pipeline {
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'Dockerhub-flask', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
                     sh "docker push ${IMAGE_NAME}"
                 }
             }
@@ -31,7 +32,7 @@ pipeline {
         stage('Deploy Container') {
             steps {
                 script {
-                    // Stop and remove previous container if it exists
+                    // Stop and remove previous container if exists
                     sh "docker rm -f ${CONTAINER_NAME} || true"
 
                     // Find an available port starting from 5000
@@ -43,6 +44,9 @@ pipeline {
                     // Run container
                     sh "docker run -d --name ${CONTAINER_NAME} -p ${hostPort}:5000 ${IMAGE_NAME}"
                     echo "Container running on host port ${hostPort}"
+
+                    // Save port for smoke test
+                    env.HOST_PORT = hostPort.toString()
                 }
             }
         }
@@ -50,7 +54,7 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
-                    def testStatus = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000", returnStdout: true).trim()
+                    def testStatus = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:${env.HOST_PORT}", returnStdout: true).trim()
                     if (testStatus != '200') {
                         error "Smoke test failed! Status code: ${testStatus}"
                     } else {
