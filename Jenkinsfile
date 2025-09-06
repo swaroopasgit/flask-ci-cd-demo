@@ -4,7 +4,7 @@ pipeline {
     environment {
         CONTAINER_NAME = 'flask-ci-container'
         IMAGE_NAME = 'saiswaroopa08/flask-ci-demo'
-        DOCKERHUB_CRED = 'docker-hub-creds' // Jenkins credentials ID for Docker Hub
+        DOCKERHUB_CRED = 'Dockerhub-flask' // Jenkins credentials ID for Docker Hub
         GIT_CRED = 'flask-ci-cd'            // Jenkins credentials ID for Git
     }
 
@@ -25,7 +25,7 @@ pipeline {
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}", 
+                withCredentials([usernamePassword(credentialsId: "${Dockerhub-flaskD}", 
                                                  passwordVariable: 'DOCKER_PASS', 
                                                  usernameVariable: 'DOCKER_USER')]) {
                     sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
