@@ -2,17 +2,14 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "saiswaroopa08/flask-ci-demo:latest"
-        CONTAINER_NAME = "flask-ci-container"
+        IMAGE_NAME = 'saiswaroopa08/flask-ci-demo:latest'
+        CONTAINER_NAME = 'flask-ci-container'
     }
 
     stages {
-
         stage('Checkout SCM') {
             steps {
-                git branch: 'main', 
-                    url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git',
-                    credentialsId: 'flask-ci-cd'
+                git branch: 'main', credentialsId: 'flask-ci-cd', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git'
             }
         }
 
@@ -24,10 +21,8 @@ pipeline {
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'Dockerhub-flask', 
-                                                 usernameVariable: 'DOCKER_USERNAME', 
-                                                 passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
+                withCredentials([usernamePassword(credentialsId: 'Dockerhub-flask', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
                     sh "docker push ${IMAGE_NAME}"
                 }
             }
@@ -35,17 +30,33 @@ pipeline {
 
         stage('Deploy Container') {
             steps {
-                // Stop existing container if running
-                sh "docker rm -f ${CONTAINER_NAME} || true"
-                // Run new container
-                sh "docker run -d --name ${CONTAINER_NAME} -p 5000:5000 ${IMAGE_NAME}"
+                script {
+                    // Stop and remove previous container if it exists
+                    sh "docker rm -f ${CONTAINER_NAME} || true"
+
+                    // Find an available port starting from 5000
+                    def hostPort = 5000
+                    while (sh(script: "lsof -i :${hostPort}", returnStatus: true) == 0) {
+                        hostPort += 1
+                    }
+
+                    // Run container
+                    sh "docker run -d --name ${CONTAINER_NAME} -p ${hostPort}:5000 ${IMAGE_NAME}"
+                    echo "Container running on host port ${hostPort}"
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                // Simple check if container is running
-                sh "docker ps | grep ${CONTAINER_NAME}"
+                script {
+                    def testStatus = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000", returnStdout: true).trim()
+                    if (testStatus != '200') {
+                        error "Smoke test failed! Status code: ${testStatus}"
+                    } else {
+                        echo "Smoke test passed!"
+                    }
+                }
             }
         }
     }
@@ -54,12 +65,6 @@ pipeline {
         always {
             echo "Cleaning up Docker container..."
             sh "docker rm -f ${CONTAINER_NAME} || true"
-        }
-        success {
-            echo "Pipeline completed successfully!"
-        }
-        failure {
-            echo "Pipeline failed! Check logs."
         }
     }
 }
