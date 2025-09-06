@@ -19,54 +19,40 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    sh "docker build -t ${IMAGE_NAME}:latest ."
-                }
+                sh "docker build -t ${IMAGE_NAME}:latest ."
             }
         }
 
         stage('Docker Login & Push') {
             steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}", 
-                                                     passwordVariable: 'DOCKER_PASS', 
-                                                     usernameVariable: 'DOCKER_USER')]) {
-                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
-                        sh "docker push ${IMAGE_NAME}:latest"
-                    }
+                withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CRED}", 
+                                                 passwordVariable: 'DOCKER_PASS', 
+                                                 usernameVariable: 'DOCKER_USER')]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    sh "docker push ${IMAGE_NAME}:latest"
                 }
             }
         }
 
         stage('Deploy Container') {
             steps {
-                script {
-                    // Stop & remove container if already running
-                    sh "docker rm -f ${CONTAINER_NAME} || true"
-                    // Run container
-                    sh "docker run -d --name ${CONTAINER_NAME} -p 5001:5000 ${IMAGE_NAME}:latest"
-                }
+                sh "docker rm -f ${CONTAINER_NAME} || true"
+                sh "docker run -d --name ${CONTAINER_NAME} -p 5001:5000 ${IMAGE_NAME}:latest"
             }
         }
 
         stage('Smoke Test') {
             steps {
-                script {
-                    sh "sleep 5" // give container a few seconds to start
-                    sh "curl -f http://localhost:5001 || exit 1"
-                }
+                sh "sleep 5"
+                sh "curl -f http://localhost:5001 || exit 1"
             }
         }
     }
 
     post {
         always {
-            node {
-                script {
-                    echo 'Cleaning up Docker container...'
-                    sh "docker rm -f ${CONTAINER_NAME} || true"
-                }
-            }
+            echo 'Cleaning up Docker container...'
+            sh "docker rm -f ${CONTAINER_NAME} || true"
         }
         success {
             echo 'Pipeline completed successfully!'
