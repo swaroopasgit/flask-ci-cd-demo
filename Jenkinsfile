@@ -39,14 +39,20 @@ pipeline {
         }
 
         stage('Deploy Container') {
-            steps {
-                sh '''
-                    docker stop flask-ci-container || true
-                    docker rm flask-ci-container || true
-                    docker run -d --name flask-ci-container -p 5000:5000 $DOCKER_USER/$IMAGE_NAME:latest
-                '''
-            }
+    steps {
+        withCredentials([usernamePassword(
+            credentialsId: 'Dockerhub-flask', 
+            usernameVariable: 'DOCKER_USER', 
+            passwordVariable: 'DOCKER_PASS'
+        )]) {
+            sh """
+                docker stop flask-ci-container || true
+                docker rm flask-ci-container || true
+                docker run -d --name flask-ci-container -p 5000:5000 ${DOCKER_USER}/${IMAGE_NAME}:latest
+            """
         }
+    }
+}
 
         stage('Smoke Test') {
             steps {
