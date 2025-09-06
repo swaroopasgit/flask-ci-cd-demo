@@ -2,78 +2,73 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "flask-ci-demo"
-        DEPLOY_CONTAINER_NAME = "flask-ci-container"
-        DEPLOY_PORT = "5001"  // change if needed
+        IMAGE_NAME = "saiswaroopa08/flask-ci-demo:latest"
+        CONTAINER_NAME = "flask-ci-container"
+        DOCKER_CRED = "Dockerhub-flask"
     }
 
     stages {
-
-        stage('Checkout Code') {
+        stage('Checkout SCM') {
             steps {
-                echo "Cloning repository..."
-                git credentialsId: 'flask-ci-cd', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git'
+                git branch: 'main', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git', credentialsId: 'flask-ci-cd'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                echo "Building Docker image..."
-                sh 'docker build -t $IMAGE_NAME:latest .'
+                sh "docker build -t ${IMAGE_NAME} ."
             }
         }
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'Dockerhub-flask', 
-                                                 usernameVariable: 'DOCKER_USER', 
-                                                 passwordVariable: 'DOCKER_PASS')]) {
-                    sh '''
-                        echo "Logging into Docker Hub..."
-                        docker login -u $DOCKER_USER -p $DOCKER_PASS
-                        docker tag $IMAGE_NAME:latest $DOCKER_USER/$IMAGE_NAME:latest
-                        docker push $DOCKER_USER/$IMAGE_NAME:latest
-                    '''
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh "docker push ${IMAGE_NAME}"
                 }
             }
         }
 
         stage('Deploy Container') {
             steps {
-                echo "Stopping old container (if exists) and running new one..."
-                sh '''
-                    docker stop $DEPLOY_CONTAINER_NAME || true
-                    docker rm $DEPLOY_CONTAINER_NAME || true
-                    docker run -d --name $DEPLOY_CONTAINER_NAME -p $DEPLOY_PORT:5000 $DOCKER_USER/$IMAGE_NAME:latest
-                '''
+                script {
+                    // Stop and remove previous container if exists
+                    sh "docker rm -f ${CONTAINER_NAME} || true"
+
+                    // Find an available port starting from 5000
+                    def hostPort = 5000
+                    while (sh(script: "lsof -i :${hostPort}", returnStatus: true) == 0) {
+                        hostPort += 1
+                    }
+
+                    // Run container
+                    sh "docker run -d --name ${CONTAINER_NAME} -p ${hostPort}:5000 ${IMAGE_NAME}"
+                    echo "Container running on host port ${hostPort}"
+
+                    // Save port for smoke test
+                    env.HOST_PORT = hostPort.toString()
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                echo "Checking if the Flask app is running..."
-                sh '''
-                    sleep 5
-                    curl -f http://localhost:$DEPLOY_PORT || exit 1
-                '''
+                script {
+                    def testStatus = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:${env.HOST_PORT}", returnStdout: true).trim()
+                    if (testStatus != '200') {
+                        error "Smoke test failed! Status code: ${testStatus}"
+                    } else {
+                        echo "Smoke test passed!"
+                    }
+                }
             }
         }
     }
 
     post {
         always {
-            echo "Pipeline finished."
-        }
-        success {
-            echo "CI/CD Pipeline succeeded! Flask app deployed at port $DEPLOY_PORT."
-        }
-        failure {
-            echo "Pipeline failed. Rolling back..."
-            sh '''
-                docker stop $DEPLOY_CONTAINER_NAME || true
-                docker rm $DEPLOY_CONTAINER_NAME || true
-            '''
+            echo "Cleaning up Docker container..."
+            sh "docker rm -f ${CONTAINER_NAME} || true"
         }
     }
 }
-
