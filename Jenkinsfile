@@ -48,7 +48,8 @@ pipeline {
             sh """
                 docker stop flask-ci-container || true
                 docker rm flask-ci-container || true
-                docker run -d --name flask-ci-container -p 5000:5000 ${DOCKER_USER}/${IMAGE_NAME}:latest
+                docker run -d --name flask-ci-container -p 5001:5000 $DOCKER_USER/$IMAGE_NAME:latest
+
             """
         }
     }
