@@ -2,58 +2,86 @@ pipeline {
     agent any
 
     environment {
-        // Point Jenkins to the correct Docker Desktop socket
-        DOCKER_HOST = "unix:///Users/kusumavakkalanka/Library/Containers/com.docker.docker/Data/docker-cli.sock"
-        DOCKER_USER = "saiswaroopa08"
-        DOCKER_IMAGE = "flask-ci-demo"
-        DOCKER_CONTAINER = "flask-ci-container"
+        DOCKER_USER = 'saiswaroopa08' // Your Docker Hub username
+        DOCKER_PASS = credentials('docker-hub-pass') // Jenkins credential ID for Docker password
+        IMAGE_NAME = 'flask-ci-demo'
+        CONTAINER_NAME = 'flask-ci-container'
+        HOST_PORT = '5001'
+        CONTAINER_PORT = '5000'
     }
 
     stages {
         stage('Checkout SCM') {
             steps {
-                git url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git', branch: 'main', credentialsId: 'flask-ci-cd'
+                git branch: 'main',
+                    credentialsId: 'flask-ci-cd',
+                    url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${DOCKER_IMAGE}:latest ."
+                script {
+                    // Dockerfile is inside app/ folder
+                    sh "docker build -t ${IMAGE_NAME}:latest -f app/Dockerfile app/"
+                }
             }
         }
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([string(credentialsId: 'docker-hub-pass', variable: 'DOCKER_PASS')]) {
-                    sh "echo \$DOCKER_PASS | docker login -u ${DOCKER_USER} --password-stdin"
-                    sh "docker tag ${DOCKER_IMAGE}:latest ${DOCKER_USER}/${DOCKER_IMAGE}:latest"
-                    sh "docker push ${DOCKER_USER}/${DOCKER_IMAGE}:latest"
+                script {
+                    sh """
+                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                        docker tag ${IMAGE_NAME}:latest \$DOCKER_USER/${IMAGE_NAME}:latest
+                        docker push \$DOCKER_USER/${IMAGE_NAME}:latest
+                    """
                 }
             }
         }
 
         stage('Deploy Container') {
             steps {
-                // Remove old container if exists
-                sh "docker rm -f ${DOCKER_CONTAINER} || true"
+                script {
+                    // Stop and remove old container if exists
+                    sh """
+                        docker stop ${CONTAINER_NAME} || true
+                        docker rm ${CONTAINER_NAME} || true
+                    """
 
-                // Run new container
-                sh "docker run -d --name ${DOCKER_CONTAINER} -p 5001:5000 ${DOCKER_USER}/${DOCKER_IMAGE}:latest"
+                    // Run new container
+                    sh """
+                        docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} \$DOCKER_USER/${IMAGE_NAME}:latest
+                    """
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                // optional: test container health
-                sh "curl -f http://localhost:5001 || exit 1"
+                script {
+                    sh """
+                        echo "Waiting 5 seconds for container to start..."
+                        sleep 5
+                        curl -f http://localhost:${HOST_PORT} || exit 1
+                    """
+                }
             }
         }
     }
 
     post {
         always {
-            // cleanup old container
-            sh "docker rm -f ${DOCKER_CONTAINER} || true"
+            script {
+                // Optional: cleanup container if needed
+                sh "docker rm -f ${CONTAINER_NAME} || true"
+            }
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed. Check the logs.'
         }
     }
 }
