@@ -2,28 +2,31 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_USER = 'saiswaroopa08' // Your Docker Hub username
-        DOCKER_PASS = credentials('docker-hub-pass') // Jenkins credential ID for Docker password
-        IMAGE_NAME = 'flask-ci-demo'
-        CONTAINER_NAME = 'flask-ci-container'
-        HOST_PORT = '5001'
-        CONTAINER_PORT = '5000'
+        // Docker & container settings
+        IMAGE_NAME = "saiswaroopa08/flask-ci-demo"
+        IMAGE_TAG = "latest"
+        CONTAINER_NAME = "flask-ci-container"
+        
+        // Docker Hub credentials (must exist in Jenkins Credentials Manager)
+        DOCKER_USER = credentials('docker-hub-user')  // your Docker Hub username
+        DOCKER_PASS = credentials('docker-hub-pass')  // your Docker Hub password
     }
 
     stages {
-        stage('Checkout SCM') {
+        stage('Checkout Code') {
             steps {
-                git branch: 'main',
-                    credentialsId: 'flask-ci-cd',
-                    url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git'
+                git(
+                    url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git',
+                    branch: 'main',
+                    credentialsId: 'flask-ci-cd'  // Git credentials in Jenkins
+                )
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Dockerfile is inside app/ folder
-                    sh "docker build -t ${IMAGE_NAME}:latest -f app/Dockerfile app/"
+                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
                 }
             }
         }
@@ -32,9 +35,8 @@ pipeline {
             steps {
                 script {
                     sh """
-                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                        docker tag ${IMAGE_NAME}:latest \$DOCKER_USER/${IMAGE_NAME}:latest
-                        docker push \$DOCKER_USER/${IMAGE_NAME}:latest
+                        echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
                     """
                 }
             }
@@ -43,16 +45,10 @@ pipeline {
         stage('Deploy Container') {
             steps {
                 script {
-                    // Stop and remove old container if exists
-                    sh """
-                        docker stop ${CONTAINER_NAME} || true
-                        docker rm ${CONTAINER_NAME} || true
-                    """
-
+                    // Stop & remove any existing container
+                    sh "docker rm -f ${CONTAINER_NAME} || true"
                     // Run new container
-                    sh """
-                        docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:${CONTAINER_PORT} \$DOCKER_USER/${IMAGE_NAME}:latest
-                    """
+                    sh "docker run -d --name ${CONTAINER_NAME} -p 5001:5000 ${IMAGE_NAME}:${IMAGE_TAG}"
                 }
             }
         }
@@ -60,11 +56,7 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
-                    sh """
-                        echo "Waiting 5 seconds for container to start..."
-                        sleep 5
-                        curl -f http://localhost:${HOST_PORT} || exit 1
-                    """
+                    sh "curl -f http://localhost:5001 || exit 1"
                 }
             }
         }
@@ -73,15 +65,15 @@ pipeline {
     post {
         always {
             script {
-                // Optional: cleanup container if needed
-                sh "docker rm -f ${CONTAINER_NAME} || true"
+                // Cleanup container using env variable
+                sh "docker rm -f ${env.CONTAINER_NAME} || true"
             }
         }
         success {
-            echo 'Pipeline completed successfully!'
+            echo "Pipeline completed successfully!"
         }
         failure {
-            echo 'Pipeline failed. Check the logs.'
+            echo "Pipeline failed. Check logs."
         }
     }
 }
