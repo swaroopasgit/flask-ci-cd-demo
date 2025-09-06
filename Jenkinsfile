@@ -2,73 +2,49 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "saiswaroopa08/flask-ci-demo:latest"
-        CONTAINER_NAME = "flask-ci-container"
-        DOCKER_CRED = "Dockerhub-flask"
+        IMAGE_NAME = 'saiswaroopa08/flask-ci-demo:latest'
+        CONTAINER_NAME = 'flask-ci-container'
     }
 
+
+
     stages {
-        stage('Checkout SCM') {
+        stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git', credentialsId: 'flask-ci-cd'
+                git branch: 'main', credentialsId: 'flask-ci-cd', url: 'https://github.com/swaroopasgit/flask-ci-cd-demo.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${IMAGE_NAME} ."
+                sh 'docker build -t $DOCKER_IMAGE app/'
             }
         }
 
-        stage('Docker Login & Push') {
+        stage('Push Docker Image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_CRED}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                withCredentials([saiswaroopa08(credentialsId: 'Dockerhub-flask', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-                    sh "docker push ${IMAGE_NAME}"
+                    sh 'docker push $DOCKER_IMAGE'
                 }
             }
         }
 
-        stage('Deploy Container') {
+        stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    // Stop and remove previous container if exists
-                    sh "docker rm -f ${CONTAINER_NAME} || true"
-
-                    // Find an available port starting from 5000
-                    def hostPort = 5000
-                    while (sh(script: "lsof -i :${hostPort}", returnStatus: true) == 0) {
-                        hostPort += 1
-                    }
-
-                    // Run container
-                    sh "docker run -d --name ${CONTAINER_NAME} -p ${hostPort}:5000 ${IMAGE_NAME}"
-                    echo "Container running on host port ${hostPort}"
-
-                    // Save port for smoke test
-                    env.HOST_PORT = hostPort.toString()
-                }
+                sh 'kubectl apply -f k8s/deployment.yaml'
+                sh 'kubectl apply -f k8s/service.yaml'
             }
         }
 
         stage('Smoke Test') {
             steps {
                 script {
-                    def testStatus = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://localhost:${env.HOST_PORT}", returnStdout: true).trim()
-                    if (testStatus != '200') {
-                        error "Smoke test failed! Status code: ${testStatus}"
-                    } else {
-                        echo "Smoke test passed!"
-                    }
+                    def ip = sh(script: "minikube ip", returnStdout: true).trim()
+                    def port = sh(script: "kubectl get svc flask-service -o=jsonpath='{.spec.ports[0].nodePort}'", returnStdout: true).trim()
+                    sh "curl --fail http://${ip}:${port}/ || exit 1"
                 }
             }
-        }
-    }
-
-    post {
-        always {
-            echo "Cleaning up Docker container..."
-            sh "docker rm -f ${CONTAINER_NAME} || true"
         }
     }
 }
